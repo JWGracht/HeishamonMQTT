@@ -1,5 +1,5 @@
 """
-<plugin key="HeishamonMQTT" name="Heishamon MQTT" version="0.3.0">
+<plugin key="HeishamonMQTT" name="Heishamon MQTT" version="0.4.0">
     <description>
       Simple plugin to manage Heishamon through MQTT
       <br/>
@@ -164,7 +164,30 @@ def getSelCommand(pUnitname):
         "Cool_Delta": "SetFloorCoolDelta",
         "DHW_Heat_Delta": "SetDHWHeatDelta",
         "Heat_Delta": "SetFloorHeatDelta",
-        "Pump_Service_Mode": "SetPump"
+        "Pump_Service_Mode": "SetPump",
+        "Main_Schedule_State": "SetMainSchedule",
+        "Heating_Off_Outdoor_Temp": "SetHeatingOffOutdoorTemp",
+        "Heater_Delay_Time": "SetHeaterDelayTime",
+        "Heater_Start_Delta": "SetHeaterStartDelta",
+        "Heater_Stop_Delta": "SetHeaterStopDelta",
+        "Alt_External_Sensor": "SetAltExternalSensor",
+        "External_Pad_Heater": "SetExternalPadHeater",
+        "Buffer_Tank_Delta": "SetBufferDelta",
+        "Buffer_Installed": "SetBuffer",
+        "External_Control": "SetExternalControl",
+        "External_Error_Signal": "SetExternalError",
+        "External_Compressor_Control": "SetExternalCompressorControl",
+        "External_Heat_Cool_Control": "SetExternalHeatCoolControl",
+        "Bivalent_Control": "SetBivalentControl",
+        "Bivalent_Mode": "SetBivalentMode",
+        "Bivalent_Start_Temp": "SetBivalentStartTemp",
+        "Bivalent_Advanced_Start_Temp": "SetBivalentAPStartTemp",
+        "Bivalent_Advanced_Stop_Temp": "SetBivalentAPStopTemp",
+        "Heating_Control": "SetHeatingControl",
+        "Smart_DHW": "SetSmartDHW",
+        "Quiet_Mode_Priority": "SetQuietModePriority",
+        "Pump_Flowrate_Mode": "SetPumpFlowrateMode",
+        "DHW_Sensor_Selection": "SetDHWSensorSelection"
     }
     return Switcher.get(pUnitname, "")
 
@@ -188,7 +211,19 @@ def getSelSwitchLevelNames(pUnitname):
         "Holiday_Mode_State": "Off|Scheduled|Active",
         "Cooling_Mode": "Curve|Direct",
         "Heating_Mode": "Curve|Direct",
-        "Zones_State": "Zone 1|Zone 2|Zone 1+2"
+        "Zones_State": "Zone 1|Zone 2|Zone 1+2",
+        "Solar_Mode": "Disabled|To buffer|To DHW",
+        "Z1_Sensor_Settings": "Water|Ext thermostat|Int thermostat",
+        "Z2_Sensor_Settings": "Water|Ext thermostat|Int thermostat",
+        "External_Pad_Heater": "Disabled|Type-A|Type-B",
+        "Pump_Flowrate_Mode": "DeltaT|Max flow",
+        "Bivalent_Mode": "Alternative|Parallel|Adv Parallel",
+        "Heating_Control": "Comfort|Efficiency",
+        "Smart_DHW": "Variable|Standard",
+        "Quiet_Mode_Priority": "Sound|Capacity",
+        "DHW_Sensor_Selection": "Top|Center",
+        "Z1_Mixing_Valve": "Off|Decrease|Increase",
+        "Z2_Mixing_Valve": "Off|Decrease|Increase"
     }
     return Switcher.get(pUnitname, "")
 
@@ -213,7 +248,19 @@ def getSelSwitchImage(pUnitname):
         "Holiday_Mode_State": 19,
         "Cooling_Mode": 16,
         "Heating_Mode": 15,
-        "Zones_State": 0
+        "Zones_State": 0,
+        "Solar_Mode": 0,
+        "Z1_Sensor_Settings": 0,
+        "Z2_Sensor_Settings": 0,
+        "External_Pad_Heater": 0,
+        "Pump_Flowrate_Mode": 0,
+        "Bivalent_Mode": 0,
+        "Heating_Control": 0,
+        "Smart_DHW": 0,
+        "Quiet_Mode_Priority": 0,
+        "DHW_Sensor_Selection": 0,
+        "Z1_Mixing_Valve": 0,
+        "Z2_Mixing_Valve": 0
     }
     return Switcher.get(pUnitname, 0)
 
@@ -301,9 +348,11 @@ def createDevice(pUnitname, pTypeName, pOptions=''):
             Domoticz.Device(Name=pUnitname, Unit=iUnit, Type=243, Options={"Custom": "1;Hz"}, Subtype=31, Used=0, DeviceID=pUnitname).Create()
         elif (pTypeName == "selSwitch"):
             # Selector switch device for multi-level control
+            levelNames = getSelSwitchLevelNames(pUnitname)
+            numLevels = len(levelNames.split("|"))
             lOption = {
-                "Scenes": "|||||",
-                "LevelNames": getSelSwitchLevelNames(pUnitname),
+                "Scenes": "|" * (numLevels - 1),
+                "LevelNames": levelNames,
                 "LevelOffHidden": "false",
                 "SelectorStyle": "0"
             }
@@ -331,7 +380,10 @@ class BasePlugin:
     # Device type lists for categorization and routing
     thermostat_devices = ["Z1_Heat_Request_Temp", "Z1_Cool_Request_Temp", "Z2_Heat_Request_Temp", 
                           "Z2_Cool_Request_Temp", "DHW_Target_Temp", "Max_Pump_Duty", "Cool_Delta", 
-                          "DHW_Heat_Delta", "Heat_Delta"]
+                          "DHW_Heat_Delta", "Heat_Delta", "Heating_Off_Outdoor_Temp",
+                          "Heater_Delay_Time", "Heater_Start_Delta", "Heater_Stop_Delta",
+                          "Buffer_Tank_Delta", "Bivalent_Start_Temp",
+                          "Bivalent_Advanced_Start_Temp", "Bivalent_Advanced_Stop_Temp"]
     
     curve_devices = ["Z1_Heat_Curve_Target_High_Temp", "Z1_Heat_Curve_Target_Low_Temp", 
                      "Z1_Heat_Curve_Outside_High_Temp", "Z1_Heat_Curve_Outside_Low_Temp",
@@ -342,32 +394,54 @@ class BasePlugin:
                      "Z2_Cool_Curve_Target_High_Temp", "Z2_Cool_Curve_Target_Low_Temp",
                      "Z2_Cool_Curve_Outside_High_Temp", "Z2_Cool_Curve_Outside_Low_Temp"]
     
-    switch_devices = ["Quiet_Mode_Schedule", "Main_Schedule_State", "Force_Heater_State", 
-                      "DHW_Heater_State", "Room_Heater_State", "External_Heater_State", "Internal_Heater_State"]
+    switch_devices = ["Quiet_Mode_Schedule", "Force_Heater_State", 
+                      "DHW_Heater_State", "Room_Heater_State", "External_Heater_State", 
+                      "Internal_Heater_State", "DHW_Installed", "Anti_Freeze_Mode",
+                      "Optional_PCB", "Z1_Pump_State", "Z2_Pump_State",
+                      "TwoWay_Valve_State", "ThreeWay_Valve_State2",
+                      "Bivalent_Advanced_Heat", "Bivalent_Advanced_DHW"]
     
     command_switch_devices = ["Heatpump_State", "Defrosting_State", "Sterilization_State", 
-                              "Force_DHW_State", "Pump_Service_Mode"]
+                              "Force_DHW_State", "Pump_Service_Mode", "Main_Schedule_State",
+                              "Alt_External_Sensor", "Buffer_Installed",
+                              "External_Control", "External_Error_Signal",
+                              "External_Compressor_Control", "External_Heat_Cool_Control",
+                              "Bivalent_Control"]
     
     command_sel_devices = ["Quiet_Mode_Level", "Powerful_Mode_Time", "Operating_Mode_State", 
-                           "Zones_State", "Holiday_Mode_State"]
+                           "Zones_State", "Holiday_Mode_State", "External_Pad_Heater",
+                           "Pump_Flowrate_Mode", "Bivalent_Mode", "Heating_Control",
+                           "Smart_DHW", "Quiet_Mode_Priority", "DHW_Sensor_Selection"]
     
-    sel_switch_devices = ["ThreeWay_Valve_State", "Cooling_Mode", "Heating_Mode"]
+    sel_switch_devices = ["ThreeWay_Valve_State", "Cooling_Mode", "Heating_Mode",
+                          "Solar_Mode", "Z1_Sensor_Settings", "Z2_Sensor_Settings"]
     
     watt_devices = ["Cool_Power_Consumption", "Cool_Power_Production", "DHW_Power_Consumption", 
                     "DHW_Power_Production", "Heat_Power_Consumption", "Heat_Power_Production"]
     
     counter_devices = ["Operations_Counter", "Operations_Hours", "DHW_Heater_Operations_Hours", 
-                       "Room_Heater_Operations_Hours", "Sterilization_Max_Time", "Pump_Duty", "Defrost_Counter"]
+                       "Room_Heater_Operations_Hours", "Sterilization_Max_Time", "Pump_Duty", 
+                       "Defrost_Counter", "Z1_Valve_PID", "Z2_Valve_PID",
+                       "Expansion_Valve", "Bivalent_Advanced_Start_Delay",
+                       "Bivalent_Advanced_Stop_Delay", "Bivalent_Advanced_DHW_Delay",
+                       "Solar_On_Delta", "Solar_Off_Delta",
+                       "Solar_Frost_Protection", "Solar_High_Limit"]
     
     speed_devices = ["Pump_Speed", "Fan1_Motor_Speed", "Fan2_Motor_Speed"]
     
-    pressure_devices = ["Low_Pressure", "High_Pressure"]
+    pressure_devices = ["Low_Pressure", "High_Pressure", "Water_Pressure"]
     
-    text_devices = ["Heat_Pump_Model"]
+    text_devices = ["Heat_Pump_Model", "Liquid_Type"]
     
     alert_devices = ["Error"]
     
     COP_devices = ["Cool_Power_COP", "DHW_Power_COP", "Heat_Power_COP"]
+    
+    # Optional PCB device lists (read-only, from heatpump to optional PCB)
+    optional_switch_devices = ["Z1_Water_Pump", "Z2_Water_Pump", "Pool_Water_Pump",
+                               "Solar_Water_Pump", "Alarm_State"]
+    
+    optional_sel_devices = ["Z1_Mixing_Valve", "Z2_Mixing_Valve"]
     
     def __init__(self):
         """Initialize the plugin"""
@@ -877,6 +951,40 @@ class BasePlugin:
                 try:
                     if (Devices[iUnit].sValue != str(mval)):
                         Devices[iUnit].Update(nValue=0, sValue=str(mval))
+                except Exception as e:
+                    Domoticz.Debug(str(e))
+        
+        # ============== OPTIONAL PCB MESSAGES ==============
+        elif ((mqttpath[0] == self.base_topic) and (mqttpath[1] == 'optional')):
+            unitname = mqttpath[2].strip()
+            
+            iUnit = getDevice(unitname)
+            if iUnit < 0:
+                if (unitname in self.optional_sel_devices):
+                    iUnit = createDevice(unitname, "selSwitch")
+                elif (unitname in self.optional_switch_devices):
+                    iUnit = createDevice(unitname, "Switch")
+                if iUnit < 0:
+                    return False
+            
+            # Handle optional selector devices
+            if (unitname in self.optional_sel_devices):
+                try:
+                    if (int(message) >= 0):
+                        scmd = int(message) * 10
+                        if (str(Devices[iUnit].sValue).lower() != str(scmd)):
+                            Devices[iUnit].Update(nValue=2, sValue=str(scmd))
+                except Exception as e:
+                    Domoticz.Debug(str(e))
+            # Handle optional switch devices
+            elif (unitname in self.optional_switch_devices):
+                try:
+                    scmd = str(message).strip().lower()
+                    if (str(Devices[iUnit].nValue).lower() != scmd):
+                        if (scmd == "1"):
+                            Devices[iUnit].Update(nValue=1, sValue="On")
+                        else:
+                            Devices[iUnit].Update(nValue=0, sValue="Off")
                 except Exception as e:
                     Domoticz.Debug(str(e))
 
