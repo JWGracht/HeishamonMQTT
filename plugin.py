@@ -1,5 +1,5 @@
 """
-<plugin key="HeishamonMQTT" name="Heishamon MQTT" version="0.4.0">
+<plugin key="HeishamonMQTT" name="Heishamon MQTT" version="0.5.0">
     <description>
       Simple plugin to manage Heishamon through MQTT
       <br/>
@@ -129,7 +129,7 @@ def calcCOP(pUnitname):
                     curCOP = 0
                 
                 # Update the COP device with calculated value
-                Devices[iCopUnit].Update(nValue=0, sValue=str(curCOP))
+                updateDevice(iCopUnit, 0, str(curCOP))
     except Exception as e:
         Domoticz.Debug(str(e))
 
@@ -285,6 +285,31 @@ def getDevice(pUnitname):
         except Exception:
             pass
     return iUnit
+
+
+def updateDevice(iUnit, nValue, sValue):
+    """
+    Update a Domoticz device only if the value has actually changed.
+    This prevents unnecessary database writes and event triggers.
+    Also clears the TimedOut flag if it was set.
+    
+    Args:
+        iUnit (int): The Domoticz unit number
+        nValue (int): The numeric value to set
+        sValue (str): The string value to set
+    
+    Returns:
+        bool: True if device was updated, False if skipped (no change)
+    """
+    try:
+        sValue = str(sValue)
+        dev = Devices[iUnit]
+        if dev.nValue != nValue or dev.sValue != sValue or dev.TimedOut:
+            dev.Update(nValue=nValue, sValue=sValue, TimedOut=0)
+            return True
+    except Exception as e:
+        Domoticz.Debug("updateDevice error: " + str(e))
+    return False
 
 
 def createDevice(pUnitname, pTypeName, pOptions=''):
@@ -496,17 +521,17 @@ class BasePlugin:
                     if iUnit < 0:  # Device doesn't exist, create it
                         iUnit = createDevice(dev, "COP")
                 
-                # Create Defrost Counter device
+                # Create Defrost Counter device (preserve existing value)
                 iUnit = getDevice('Defrost_Counter')
                 if iUnit < 0:
                     iUnit = createDevice('Defrost_Counter', "Counter")
-                Devices[iUnit].Update(nValue=0, sValue=str(0))
+                    updateDevice(iUnit, 0, "0")
                 
-                # Create Pump Service Mode device
+                # Create Pump Service Mode device (preserve existing value)
                 iUnit = getDevice('Pump_Service_Mode')
                 if iUnit < 0:
                     iUnit = createDevice('Pump_Service_Mode', "Switch")
-                Devices[iUnit].Update(nValue=0, sValue="Off")
+                    updateDevice(iUnit, 0, "Off")
             
             except Exception as e:
                 Domoticz.Error("MQTT client start error: " + str(e))
@@ -608,7 +633,7 @@ class BasePlugin:
                 
                 # Update device status for Pump_Service_Mode
                 if (devname == "Pump_Service_Mode"):
-                    Devices[Unit].Update(nValue=Level, sValue=Command)
+                    updateDevice(Unit, Level, Command)
             except Exception as e:
                 Domoticz.Debug(str(e))
                 return False
@@ -665,8 +690,15 @@ class BasePlugin:
     def onMQTTDisconnected(self):
         """
         Called when MQTT connection is lost.
+        Marks all devices as timed out so Domoticz shows them as unavailable.
         """
         Domoticz.Debug("onMQTTDisconnected")
+        for unit in Devices:
+            try:
+                if not Devices[unit].TimedOut:
+                    Devices[unit].Update(nValue=Devices[unit].nValue, sValue=Devices[unit].sValue, TimedOut=1)
+            except Exception:
+                pass
     
     def onMQTTSubscribed(self):
         """
@@ -713,7 +745,7 @@ class BasePlugin:
                 mval = str(message).strip()
             
             try:
-                Devices[iUnit].Update(nValue=0, sValue=str(mval))
+                updateDevice(iUnit, 0, str(mval))
             except Exception as e:
                 Domoticz.Debug(str(e))
         
@@ -758,7 +790,7 @@ class BasePlugin:
                 
                 try:
                     if sval != "":
-                        Devices[iUnit].Update(nValue=0, sValue=str(sval))
+                        updateDevice(iUnit, 0, str(sval))
                 except Exception as e:
                     Domoticz.Debug(str(e))
                     return True
@@ -823,7 +855,7 @@ class BasePlugin:
                             
                             try:
                                 curval = curval + 1
-                                Devices[iUnit2].Update(nValue=0, sValue=str(curval))
+                                updateDevice(iUnit2, 0, str(curval))
                                 Domoticz.Debug("Changed --> Heatpump_State=" + unitname + ' | ' + scmd + "iUnit2=" + str(iUnit2) + " | curval=" + str(curval))
                             except Exception as e:
                                 Domoticz.Debug(str(e))
@@ -834,47 +866,32 @@ class BasePlugin:
             # ============== TEMPERATURE DEVICES ==============
             if (("_Temp" in unitname) or (unitname in self.thermostat_devices) or (unitname in self.curve_devices)):
                 try:
-                    curval = Devices[iUnit].sValue
-                except Exception:
-                    curval = 0
-                
-                try:
                     mval = float(message)
                 except ValueError:
                     mval = str(message).strip()
                 
-                try:
-                    # Only update if value has changed or is not a thermostat/curve device
-                    if ((unitname not in self.thermostat_devices) and (unitname not in self.curve_devices)) or (str(mval) != curval):
-                        Devices[iUnit].Update(nValue=0, sValue=str(mval))
-                except Exception as e:
-                    Domoticz.Debug(str(e))
+                updateDevice(iUnit, 0, str(mval))
             
             # ============== SWITCH DEVICES ==============
             elif ((unitname in self.switch_devices) or (unitname in self.command_switch_devices)):
                 try:
                     scmd = str(message).strip().lower()
                     
-                    if (str(Devices[iUnit].nValue).lower() != scmd):
-                        if (scmd == "1"):  # Set device status if needed
-                            Devices[iUnit].Update(nValue=1, sValue="On")
-                        else:
-                            Devices[iUnit].Update(nValue=0, sValue="Off")
+                    if (scmd == "1"):
+                        updateDevice(iUnit, 1, "On")
+                    else:
+                        updateDevice(iUnit, 0, "Off")
                 except Exception as e:
                     Domoticz.Debug(str(e))
-                    return False
             
             # ============== SELECTOR SWITCH DEVICES ==============
             elif ((unitname in self.sel_switch_devices) or (unitname in self.command_sel_devices)):
                 try:
                     if (int(message) >= 0):
                         scmd = int(message) * 10
-                        
-                        if (str(Devices[iUnit].sValue).lower() != str(scmd)):
-                            Devices[iUnit].Update(nValue=2, sValue=str(scmd))
+                        updateDevice(iUnit, 2, str(scmd))
                 except Exception as e:
                     Domoticz.Debug(str(e))
-                    return False
             
             # ============== POWER/ENERGY DEVICES ==============
             elif (unitname in self.watt_devices):
@@ -895,12 +912,7 @@ class BasePlugin:
                 except ValueError:
                     mval = str(message).strip()
                 
-                try:
-                    if (curval != mval):
-                        Devices[iUnit].Update(nValue=0, sValue=str(mval))
-                except Exception as e:
-                    Domoticz.Debug(str(e))
-                    return True
+                updateDevice(iUnit, 0, str(mval))
                 
                 # Calculate and update COP
                 try:
@@ -913,46 +925,21 @@ class BasePlugin:
                 (unitname in self.counter_devices) or (unitname == "Compressor_Current") or 
                 (unitname == "Compressor_Freq") or (unitname == "Pump_Flow")):
                 try:
-                    curval = Devices[iUnit].sValue
-                except Exception:
-                    curval = 0
-                
-                try:
-                    mval = int(message)
+                    mval = float(message)
                 except ValueError:
                     mval = str(message).strip()
                 
-                try:
-                    if (curval != str(mval)):
-                        Devices[iUnit].Update(nValue=0, sValue=str(mval))
-                except Exception as e:
-                    Domoticz.Info(str(e))
+                updateDevice(iUnit, 0, str(mval))
             
             # ============== TEXT DEVICES ==============
             elif (unitname in self.text_devices):
-                try:
-                    mval = int(message)
-                except ValueError:
-                    mval = str(message).strip()
-                
-                try:
-                    if (Devices[iUnit].sValue != str(mval)):
-                        Devices[iUnit].Update(nValue=0, sValue=str(mval))
-                except Exception as e:
-                    Domoticz.Debug(str(e))
+                mval = str(message).strip()
+                updateDevice(iUnit, 0, mval)
             
             # ============== ALERT DEVICES ==============
             elif (unitname in self.alert_devices):
-                try:
-                    mval = int(message)
-                except ValueError:
-                    mval = str(message).strip()
-                
-                try:
-                    if (Devices[iUnit].sValue != str(mval)):
-                        Devices[iUnit].Update(nValue=0, sValue=str(mval))
-                except Exception as e:
-                    Domoticz.Debug(str(e))
+                mval = str(message).strip()
+                updateDevice(iUnit, 0, mval)
         
         # ============== OPTIONAL PCB MESSAGES ==============
         elif ((mqttpath[0] == self.base_topic) and (mqttpath[1] == 'optional')):
@@ -972,19 +959,17 @@ class BasePlugin:
                 try:
                     if (int(message) >= 0):
                         scmd = int(message) * 10
-                        if (str(Devices[iUnit].sValue).lower() != str(scmd)):
-                            Devices[iUnit].Update(nValue=2, sValue=str(scmd))
+                        updateDevice(iUnit, 2, str(scmd))
                 except Exception as e:
                     Domoticz.Debug(str(e))
             # Handle optional switch devices
             elif (unitname in self.optional_switch_devices):
                 try:
                     scmd = str(message).strip().lower()
-                    if (str(Devices[iUnit].nValue).lower() != scmd):
-                        if (scmd == "1"):
-                            Devices[iUnit].Update(nValue=1, sValue="On")
-                        else:
-                            Devices[iUnit].Update(nValue=0, sValue="Off")
+                    if (scmd == "1"):
+                        updateDevice(iUnit, 1, "On")
+                    else:
+                        updateDevice(iUnit, 0, "Off")
                 except Exception as e:
                     Domoticz.Debug(str(e))
 
