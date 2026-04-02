@@ -1,5 +1,5 @@
 """
-<plugin key="HeishamonMQTT" name="Heishamon MQTT" version="0.2.4">
+<plugin key="HeishamonMQTT" name="Heishamon MQTT" version="0.3.0">
     <description>
       Simple plugin to manage Heishamon through MQTT
       <br/>
@@ -87,7 +87,7 @@ def getSplitVal(sValue, index):
     """
     try:
         prevdata = sValue.split(";")
-    except:
+    except (AttributeError, TypeError):
         prevdata = []
     
     if len(prevdata) < 2:
@@ -105,23 +105,31 @@ def calcCOP(pUnitname):
     Args:
         pUnitname (str): The unit name of the power device to calculate COP for
     """
-    lConsName, lProdName, lCopname = getEnergyNames(pUnitname)
+    names = getEnergyNames(pUnitname)
+    if names is None:
+        return
+    lConsName, lProdName, lCopname = names
     curCOP = 0
     try:
         # Calculate COP only when we have consumption or production values
         if ((pUnitname == lConsName) or (pUnitname == lProdName)):
-            curCons = float(getSplitVal(Devices[getDevice(lConsName)].sValue, 0))
+            iConsUnit = getDevice(lConsName)
+            iProdUnit = getDevice(lProdName)
+            iCopUnit = getDevice(lCopname)
+            if iConsUnit < 0 or iProdUnit < 0 or iCopUnit < 0:
+                return
+            curCons = float(getSplitVal(Devices[iConsUnit].sValue, 0))
             
             # Avoid division by zero
             if (curCons > 0):
-                curProd = float(getSplitVal(Devices[getDevice(lProdName)].sValue, 0))
+                curProd = float(getSplitVal(Devices[iProdUnit].sValue, 0))
                 try:
                     curCOP = round((curProd / curCons), 2)
                 except Exception as e:
                     curCOP = 0
                 
                 # Update the COP device with calculated value
-                Devices[getDevice(lCopname)].Update(nValue=0, sValue=str(curCOP))
+                Devices[iCopUnit].Update(nValue=0, sValue=str(curCOP))
     except Exception as e:
         Domoticz.Debug(str(e))
 
@@ -207,7 +215,7 @@ def getSelSwitchImage(pUnitname):
         "Heating_Mode": 15,
         "Zones_State": 0
     }
-    return Switcher.get(pUnitname, "")
+    return Switcher.get(pUnitname, 0)
 
 
 def getDevice(pUnitname):
@@ -227,7 +235,7 @@ def getDevice(pUnitname):
             if (Devices[Device].DeviceID.strip() == pUnitname):
                 iUnit = Device
                 break
-        except:
+        except Exception:
             pass
     return iUnit
 
@@ -403,7 +411,9 @@ class BasePlugin:
                     self.onMQTTConnected,
                     self.onMQTTDisconnected,
                     self.onMQTTPublish,
-                    self.onMQTTSubscribed
+                    self.onMQTTSubscribed,
+                    username=Parameters["Username"].strip(),
+                    password=Parameters["Password"].strip()
                 )
                 
                 # Create COP (Coefficient of Performance) devices
@@ -441,9 +451,11 @@ class BasePlugin:
     def onStop(self):
         """
         Domoticz plugin shutdown handler.
-        Called when the plugin is stopped.
+        Closes the MQTT connection gracefully when the plugin is stopped.
         """
         Domoticz.Debug("onStop called")
+        if self.mqttClient is not None:
+            self.mqttClient.close()
     
     def onCommand(self, Unit, Command, Level, Color):
         """
@@ -601,7 +613,7 @@ class BasePlugin:
         try:
             topic = str(topic)
             message = str(message)
-        except:
+        except Exception:
             Domoticz.Debug("MQTT message is not a valid string!")
             return False
         
@@ -612,7 +624,7 @@ class BasePlugin:
             Domoticz.Debug("!! Heishamon firmware < V1.0 !! Please update the firmware or use the plugin version 0.1.8")
         
         # ============== 1-WIRE TEMPERATURE SENSORS ==============
-        if ((mqttpath[0] == self.base_topic) and (mqttpath[1] == '1wire')):
+        elif ((mqttpath[0] == self.base_topic) and (mqttpath[1] == '1wire')):
             unitname = mqttpath[2].strip()
             
             iUnit = getDevice(unitname)
@@ -623,7 +635,7 @@ class BasePlugin:
             
             try:
                 mval = float(message)
-            except:
+            except ValueError:
                 mval = str(message).strip()
             
             try:
@@ -632,7 +644,7 @@ class BasePlugin:
                 Domoticz.Debug(str(e))
         
         # ============== S0 PULSE COUNTER (ENERGY METER) ==============
-        if ((mqttpath[0] == self.base_topic) and (mqttpath[1] == 's0')):
+        elif ((mqttpath[0] == self.base_topic) and (mqttpath[1] == 's0')):
             
             unitname = mqttpath[1] + '_' + mqttpath[3]
             unitname = unitname.strip()
@@ -641,7 +653,7 @@ class BasePlugin:
             if (mqttpath[2] == 'WatthourTotal'):
                 try:
                     self.wattHourTotal = float(str(message).strip())
-                except:
+                except ValueError:
                     Domoticz.Debug("Exception in s0/WatthourTotal " + str(message) + ' ' + unitname)
             
             # Update current watt consumption
@@ -655,7 +667,7 @@ class BasePlugin:
                 try:
                     curval = Devices[iUnit].sValue
                     prevdata = curval.split(";")
-                except:
+                except Exception:
                     prevdata = []
                 
                 if len(prevdata) < 2:
@@ -664,7 +676,7 @@ class BasePlugin:
                 
                 try:
                     mval = float(str(message).strip())
-                except:
+                except ValueError:
                     mval = str(message).strip()
                 
                 # Combine current power with total consumption
@@ -678,7 +690,7 @@ class BasePlugin:
                     return True
         
         # ============== MAIN HEISHAMON STATUS MESSAGES ==============
-        if ((mqttpath[0] == self.base_topic) and (mqttpath[1] == 'main')):
+        elif ((mqttpath[0] == self.base_topic) and (mqttpath[1] == 'main')):
             unitname = mqttpath[2].strip()
             
             iUnit = getDevice(unitname)
@@ -732,7 +744,7 @@ class BasePlugin:
                             try:
                                 iUnit2 = getDevice("Defrost_Counter")
                                 curval = int(Devices[iUnit2].sValue)
-                            except:
+                            except (KeyError, ValueError, TypeError):
                                 curval = 0
                             
                             try:
@@ -749,12 +761,12 @@ class BasePlugin:
             if (("_Temp" in unitname) or (unitname in self.thermostat_devices) or (unitname in self.curve_devices)):
                 try:
                     curval = Devices[iUnit].sValue
-                except:
+                except Exception:
                     curval = 0
                 
                 try:
                     mval = float(message)
-                except:
+                except ValueError:
                     mval = str(message).strip()
                 
                 try:
@@ -765,7 +777,7 @@ class BasePlugin:
                     Domoticz.Debug(str(e))
             
             # ============== SWITCH DEVICES ==============
-            if ((unitname in self.switch_devices) or (unitname in self.command_switch_devices)):
+            elif ((unitname in self.switch_devices) or (unitname in self.command_switch_devices)):
                 try:
                     scmd = str(message).strip().lower()
                     
@@ -779,7 +791,7 @@ class BasePlugin:
                     return False
             
             # ============== SELECTOR SWITCH DEVICES ==============
-            if ((unitname in self.sel_switch_devices) or (unitname in self.command_sel_devices)):
+            elif ((unitname in self.sel_switch_devices) or (unitname in self.command_sel_devices)):
                 try:
                     if (int(message) >= 0):
                         scmd = int(message) * 10
@@ -791,11 +803,11 @@ class BasePlugin:
                     return False
             
             # ============== POWER/ENERGY DEVICES ==============
-            if (unitname in self.watt_devices):
+            elif (unitname in self.watt_devices):
                 try:
                     curval = Devices[iUnit].sValue
                     prevdata = curval.split(";")
-                except:
+                except Exception:
                     prevdata = []
                 
                 # Recreate old device format to new format
@@ -806,7 +818,7 @@ class BasePlugin:
                 
                 try:
                     mval = float(str(message).strip())
-                except:
+                except ValueError:
                     mval = str(message).strip()
                 
                 try:
@@ -823,17 +835,17 @@ class BasePlugin:
                     Domoticz.Debug(str(e))
             
             # ============== NUMERIC DEVICES (Speed, Pressure, Counter, Current, Freq, Flow) ==============
-            if ((unitname in self.speed_devices) or (unitname in self.pressure_devices) or 
+            elif ((unitname in self.speed_devices) or (unitname in self.pressure_devices) or 
                 (unitname in self.counter_devices) or (unitname == "Compressor_Current") or 
                 (unitname == "Compressor_Freq") or (unitname == "Pump_Flow")):
                 try:
                     curval = Devices[iUnit].sValue
-                except:
+                except Exception:
                     curval = 0
                 
                 try:
                     mval = int(message)
-                except:
+                except ValueError:
                     mval = str(message).strip()
                 
                 try:
@@ -843,10 +855,10 @@ class BasePlugin:
                     Domoticz.Info(str(e))
             
             # ============== TEXT DEVICES ==============
-            if (unitname in self.text_devices):
+            elif (unitname in self.text_devices):
                 try:
                     mval = int(message)
-                except:
+                except ValueError:
                     mval = str(message).strip()
                 
                 try:
@@ -856,10 +868,10 @@ class BasePlugin:
                     Domoticz.Debug(str(e))
             
             # ============== ALERT DEVICES ==============
-            if (unitname in self.alert_devices):
+            elif (unitname in self.alert_devices):
                 try:
                     mval = int(message)
-                except:
+                except ValueError:
                     mval = str(message).strip()
                 
                 try:
