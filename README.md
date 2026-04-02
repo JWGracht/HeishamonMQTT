@@ -90,6 +90,39 @@ Version 0.2.3 ->
 		- Added Pump_Service_Mode
 Version 0.2.4 -> 
 		- Fixed *_Energy_* -> *_Power_* for Heishamon V3.2
-		
+
+Version v0.3.0 -> 
+- Fixed MQTT authentication — username and password are now sent to the broker
+- Fixed `calcCOP` crash when called with unrecognized device names
+- Fixed `getSelSwitchImage` returning wrong type (string instead of int)
+- Fixed MQTT connection not closed on plugin stop (resource leak)
+- Fixed Mixed tab/space indentation in MQTT subscribe method
+- Improved Topic and device-type routing uses `elif` chains for correctness and performance
+- Improved Bare `except:` clauses replaced with specific exception types
+- Improved Inline documentation for all functions and classes
+
+Version v0.4.0 -> 
+- Added Support for all new firmware MQTT topics (TOP96-TOP143)
+- Added Bivalent control settings (mode, start/stop temps, advanced parallel delays)
+- Added Solar settings (mode, on/off delta, frost protection, high limit)
+- Added Buffer tank settings (installed, delta)
+- Added External control switches (external control, error signal, compressor control, heat/cool control)
+- Added Heater settings (delay time, start/stop delta for J-series)
+- Added New settable selectors: external pad heater, pump flowrate mode, heating control, smart DHW, quiet mode priority, DHW sensor selection
+- Added New settable switches: main schedule, alt external sensor, bivalent control
+- Added New read-only switches: DHW installed, anti-freeze mode, optional PCB, zone pump states, 2-way/3-way valve states, bivalent advanced heat/DHW
+- Added New read-only selectors: solar mode, zone 1/2 sensor settings
+- Added New counters: expansion valve, valve PIDs, bivalent delays
+- Added Water pressure sensor (K/L series), liquid type text device
+- Added Optional PCB topic handling (`optional/` subtopic) with zone water pumps, mixing valves, pool/solar water pumps, alarm state
+- Moved Main_Schedule_State from read-only to controllable (SET24 command)
+
+Version v0.5.0 -> 
+- Improved Centralized `updateDevice` helper — all device updates now check for value changes before writing to the database, reducing unnecessary DB writes and event triggers
+- Improved `TimedOut` flag support — devices are marked timed out when MQTT connection is lost and automatically recover when data flows again
+- Fixed Defrost counter no longer resets to 0 on every plugin restart (only initialized on first creation)
+- Fixed Watt device comparison bug — was comparing string to float, causing every update to write
+- Fixed Numeric devices (pressure, flow, current) now use `float()` instead of `int()`, preserving decimal precision
+- Simplified Text and alert device update code reduced via helper function		
 
 ```
